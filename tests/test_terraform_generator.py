@@ -1,8 +1,9 @@
+from pathlib import Path
+
 from function.terraform_generator import (
     _terraform_name,
     generate_terraform,
 )
-
 
 def test_terraform_name_normalizes_value():
     assert _terraform_name("My Request 001") == "my-request-001"
@@ -88,7 +89,7 @@ def test_generate_terraform_creates_expected_files(tmp_path):
     }
 
     assert {
-        path.split("\\")[-1]
+        Path(path).name
         for path in result.files
     } == expected_files
 
