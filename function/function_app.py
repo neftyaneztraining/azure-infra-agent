@@ -809,162 +809,6 @@ def architecture_approval(
 
 
 # ============================================================
-# 4. SUBMIT ARCHITECTURE DECISION
-# ============================================================
-
-def process_architecture_approval(
-    approval: dict
-) -> None:
-
-    logging.info(
-        "Processing architecture approval: %s",
-        json.dumps(approval)
-    )
-
-    # --------------------------------------------------------
-    # Validate required fields
-    # --------------------------------------------------------
-
-    request_id = approval.get(
-        "request_id"
-    )
-
-    decision = approval.get(
-        "decision"
-    )
-
-    if not request_id:
-        raise ValueError(
-            "Missing required field: request_id"
-        )
-
-    if not decision:
-        raise ValueError(
-            "Missing required field: decision"
-        )
-
-    # --------------------------------------------------------
-    # Normalize approval
-    # --------------------------------------------------------
-
-    normalized_approval = {
-
-        "request_id":
-            str(
-                request_id
-            ).strip(),
-
-        "decision":
-            str(
-                decision
-            ).strip().upper(),
-
-        "comments":
-            str(
-                approval.get(
-                    "comments",
-                    ""
-                )
-            ).strip(),
-
-        "environment":
-            str(
-                approval.get(
-                    "environment",
-                    "dev"
-                )
-            ).strip().lower(),
-
-        "request":
-            str(
-                approval.get(
-                    "request",
-                    ""
-                )
-            ).strip(),
-
-        "architecture_type":
-            str(
-                approval.get(
-                    "architecture_type",
-                    ""
-                )
-            ).strip(),
-
-        "resources":
-            approval.get(
-                "resources",
-                []
-            )
-    }
-
-    logging.info(
-        "Normalized architecture approval: %s",
-        json.dumps(
-            normalized_approval
-        )
-    )
-
-    # --------------------------------------------------------
-    # Validate decision
-    # --------------------------------------------------------
-
-    if normalized_approval["decision"] not in [
-        "APPROVED",
-        "REJECTED"
-    ]:
-
-        raise ValueError(
-            "Decision must be APPROVED or REJECTED"
-        )
-
-    # --------------------------------------------------------
-    # APPROVED
-    # --------------------------------------------------------
-
-    if normalized_approval["decision"] == "APPROVED":
-
-        logging.info(
-            "Architecture APPROVED: %s",
-            normalized_approval[
-                "request_id"
-            ]
-        )
-
-        send_terraform_generation_request(
-            normalized_approval
-        )
-
-        logging.info(
-            "Approved architecture sent "
-            "to terraform-generation: %s",
-            normalized_approval[
-                "request_id"
-            ]
-        )
-
-    # --------------------------------------------------------
-    # REJECTED
-    # --------------------------------------------------------
-
-    elif normalized_approval["decision"] == "REJECTED":
-
-        logging.warning(
-            "Architecture REJECTED: %s",
-            normalized_approval[
-                "request_id"
-            ]
-        )
-
-        logging.info(
-            "Architecture rejected. "
-            "Terraform generation skipped: %s",
-            normalized_approval[
-                "request_id"
-            ]
-        )
-
-# ============================================================
 # 5. GENERATE TERRAFORM
 # ============================================================
 
@@ -1409,8 +1253,10 @@ def apply_terraform_function(
         message
     )
 
-    try:
+    terraform_apply_completed = False
 
+    try:
+        
         # ----------------------------------------------------
         # Parse message
         # ----------------------------------------------------
@@ -1510,6 +1356,10 @@ def apply_terraform_function(
             request_id=request_id,
             terraform_directory=terraform_directory
         )
+
+        if result.status == "terraform_applied":
+            terraform_apply_completed = True
+
         connection_string = os.environ[
             "AzureWebJobsStorage"
         ]
@@ -1649,173 +1499,30 @@ def apply_terraform_function(
 
     except Exception as exc:
 
-        write_audit_event(
-            request_id=request_id,
-            stage="terraform_apply",
-            status="terraform_apply_failed",
-            actor="system",
-            message=f"Terraform apply failed: {exc}"
-        )
+        if not terraform_apply_completed:
+
+            write_audit_event(
+                request_id=request_id,
+                stage="terraform_apply",
+                status="terraform_apply_failed",
+                actor="system",
+                message=f"Terraform apply failed: {exc}"
+            )
+
+        else:
+
+            logging.error(
+                "Terraform apply completed successfully, "
+                "but post-apply processing failed: %s",
+                exc
+            )
 
         logging.exception(
-            "Terraform apply failed: %s",
+            "Terraform apply processing failed: %s",
             exc
         )
 
         raise
-
-
-# ============================================================
-# 8. TERRAFORM PLAN APPROVAL
-# ============================================================
-
-def process_terraform_plan_approval(
-    plan_result: dict
-) -> None:
-
-    logging.info(
-        "Processing Terraform plan approval: %s",
-        json.dumps(
-            plan_result,
-            ensure_ascii=False
-        )
-    )
-
-    # --------------------------------------------------------
-    # Validate required fields
-    # --------------------------------------------------------
-
-    request_id = plan_result.get(
-        "request_id"
-    )
-
-    working_directory = plan_result.get(
-        "working_directory"
-    )
-
-    status = plan_result.get(
-        "status"
-    )
-
-    if not request_id:
-        raise ValueError(
-            "Missing required field: request_id"
-        )
-
-    if not working_directory:
-        raise ValueError(
-            "Missing required field: working_directory"
-        )
-
-    if not status:
-        raise ValueError(
-            "Missing required field: status"
-        )
-
-    # --------------------------------------------------------
-    # Normalize
-    # --------------------------------------------------------
-
-    request_id = str(
-        request_id
-    ).strip()
-
-    working_directory = str(
-        working_directory
-    ).strip()
-
-    status = str(
-        status
-    ).strip().lower()
-
-    # --------------------------------------------------------
-    # Validate Terraform plan status
-    # --------------------------------------------------------
-
-    if status != "terraform_plan_generated":
-
-        raise ValueError(
-            "Terraform plan requires a valid "
-            "terraform_plan_generated status"
-        )
-
-    logging.info(
-        "Terraform plan approved for processing: %s",
-        json.dumps(
-            {
-                "request_id":
-                    request_id,
-
-                "working_directory":
-                    working_directory,
-
-                "status":
-                    status
-            },
-            ensure_ascii=False
-        )
-    )
-
-    # --------------------------------------------------------
-    # Verify Terraform directory
-    # --------------------------------------------------------
-
-    terraform_directory = Path(
-        working_directory
-    )
-
-    if not terraform_directory.exists():
-
-        raise FileNotFoundError(
-            "Terraform directory does not exist: "
-            f"{terraform_directory}"
-        )
-
-    if not (
-        terraform_directory / "main.tf"
-    ).exists():
-
-        raise FileNotFoundError(
-            "main.tf was not found in: "
-            f"{terraform_directory}"
-        )
-
-    # --------------------------------------------------------
-    # Send APPLY request
-    # --------------------------------------------------------
-
-    connection_string = os.environ[
-        "AzureWebJobsStorage"
-    ]
-
-    apply_queue = QueueClient.from_connection_string(
-        conn_str=connection_string,
-        queue_name="terraform-apply-request"
-    )
-
-    apply_message = {
-
-        "request_id":
-            request_id,
-
-        "terraform_directory":
-            working_directory,
-
-        "decision":
-            "APPROVED"
-    }
-
-    apply_queue.send_message(
-        json.dumps(
-            apply_message,
-            ensure_ascii=False
-        )
-    )
-
-    logging.info(
-        "Terraform apply request sent successfully: %s",
-        request_id
-    )
 
 
 # ============================================================

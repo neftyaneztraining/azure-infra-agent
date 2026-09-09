@@ -360,14 +360,14 @@ def test_apply_fails_when_output_command_fails(
         fake_run_command,
     )
 
-    with pytest.raises(
-        RuntimeError,
-        match="Terraform output failed",
-    ):
-        apply_terraform(
-            "runner-test-012",
-            str(tmp_path),
-        )
+    result = apply_terraform(
+        "runner-test-012",
+        str(tmp_path),
+    )
+
+    assert result.status == "terraform_applied"
+    assert result.terraform_outputs == {}
+    assert result.request_id == "runner-test-012"
 
 
 def test_apply_rejects_invalid_output_json(
@@ -393,14 +393,14 @@ def test_apply_rejects_invalid_output_json(
         fake_run_command,
     )
 
-    with pytest.raises(
-        RuntimeError,
-        match="invalid JSON",
-    ):
-        apply_terraform(
-            "runner-test-013",
-            str(tmp_path),
-        )
+    result = apply_terraform(
+        "runner-test-013",
+        str(tmp_path),
+    )
+
+    assert result.status == "terraform_applied"
+    assert result.terraform_outputs == {}
+    assert result.request_id == "runner-test-013"
 
 
 def test_apply_succeeds_and_returns_outputs(

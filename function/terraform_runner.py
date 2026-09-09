@@ -383,31 +383,38 @@ def apply_terraform(
         working_directory
     )
 
+    terraform_outputs = {}
+
     if output_result.returncode != 0:
 
-        raise RuntimeError(
-            "Terraform output failed:\n"
-            + output_result.stdout
-            + "\n"
-            + output_result.stderr
+        logging.warning(
+            "Terraform apply succeeded, but "
+            "Terraform outputs could not be retrieved: %s",
+            request_id
         )
 
-    try:
+    else:
 
-        terraform_outputs = json.loads(
-            output_result.stdout
+        try:
+
+            terraform_outputs = json.loads(
+                output_result.stdout
+            )
+
+        except json.JSONDecodeError:
+
+            logging.warning(
+                "Terraform apply succeeded, but "
+                "Terraform output returned invalid JSON: %s",
+                request_id
+            )
+
+            terraform_outputs = {}
+
+        logging.info(
+            "Terraform outputs retrieved successfully: %s",
+            request_id
         )
-
-    except json.JSONDecodeError as exc:
-
-        raise RuntimeError(
-            "Terraform output returned invalid JSON."
-        ) from exc
-
-    logging.info(
-        "Terraform outputs retrieved successfully: %s",
-        request_id
-    )
 
     # --------------------------------------------------------
     # Return Terraform apply result
